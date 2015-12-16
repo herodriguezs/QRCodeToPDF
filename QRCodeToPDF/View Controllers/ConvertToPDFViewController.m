@@ -12,6 +12,7 @@
 {
     IBOutlet UIImageView *qrCodeImageView;
     CGSize pageSize;
+    CGFloat yPosition;
 }
 @end
 
@@ -20,6 +21,7 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     // Do any additional setup after loading the view from its nib.
+    yPosition = 20;
 }
 
 - (void)didReceiveMemoryWarning {
@@ -33,15 +35,14 @@
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     NSString *documentsDirectory = [paths objectAtIndex:0];
     NSString *pdfFileName = [documentsDirectory stringByAppendingPathComponent:fileName];
-    
     [self generatePdfWithFilePath:pdfFileName];
     [self sendPDFInEmailWithFilePath:pdfFileName];
 }
 
 - (void) generatePdfWithFilePath:(NSString *)filePath
 {
+    yPosition = 20; // Initial position
     UIGraphicsBeginPDFContextToFile(filePath, CGRectZero, nil);
-    
     NSInteger currentPage = 0;
     BOOL done = NO;
     do {
@@ -49,6 +50,8 @@
         UIGraphicsBeginPDFPageWithInfo(CGRectMake(0, 0, pageSize.width, pageSize.height), nil);
         //Draw an image
         [self drawImage];
+        // Draw text
+        [self drawText];
         done = YES;
     }
     while (!done);
@@ -59,29 +62,19 @@
 
 - (void) drawText
 {
-    CGContextRef    currentContext = UIGraphicsGetCurrentContext();
-    CGContextSetRGBFillColor(currentContext, 0.0, 0.0, 0.0, 1.0);
-    
     NSString *textToDraw = @"QR Code Text";
-    
     UIFont *font = [UIFont systemFontOfSize:14.0];
-    
-    CGSize stringSize = [textToDraw sizeWithFont:font
-                               constrainedToSize:CGSizeMake(100, 30)
-                                   lineBreakMode:UILineBreakModeWordWrap];
-    
-    CGRect renderingRect = CGRectMake(kBorderInset + kMarginInset, kBorderInset + kMarginInset + 50.0, pageSize.width - 2*kBorderInset - 2*kMarginInset, stringSize.height);
-    
-    [textToDraw drawInRect:renderingRect
-                  withFont:font
-             lineBreakMode:UILineBreakModeWordWrap
-                 alignment:UITextAlignmentLeft];
+    CGFloat width = 100;
+    UIImage *image = [self imageWithString:textToDraw font:font width:width];
+    [image drawInRect:CGRectMake(20, yPosition, image.size.width, image.size.height)];
+    yPosition += image.size.height + 10;
 }
 
 - (void) drawImage
 {
     UIImage *demoImage = qrCodeImageView.image;
-    [demoImage drawInRect:CGRectMake(20, 20, demoImage.size.width/2, demoImage.size.height/2)];
+    [demoImage drawInRect:CGRectMake(20, yPosition, demoImage.size.width, demoImage.size.height)];
+    yPosition += demoImage.size.height + 10;
 }
 
 - (void)sendPDFInEmailWithFilePath:(NSString *)filePath {
@@ -113,6 +106,60 @@
     if(result == MFMailComposeResultSent){
         NSLog(@"Email sent.");
     }
+}
+
+- (UIImage *)imageWithString:(NSString *)string font:(UIFont *)font width:(CGFloat)width
+{
+    CGSize size = CGSizeMake(width, 10000);
+    float systemVersion = UIDevice.currentDevice.systemVersion.floatValue;
+    
+    CGSize messuredSize;
+    if (systemVersion >= 7.0) {
+        messuredSize = [string boundingRectWithSize:size
+                                            options:NSStringDrawingUsesLineFragmentOrigin
+                                         attributes:@{NSFontAttributeName: font}
+                                            context:nil].size;
+    } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        messuredSize = [string sizeWithFont:font constrainedToSize:size];
+#pragma clang diagnostic pop
+    }
+    
+    if ([UIScreen.mainScreen respondsToSelector:@selector(scale)]) {
+        if (UIScreen.mainScreen.scale == 2.0) {
+            UIGraphicsBeginImageContextWithOptions(messuredSize, NO, 1.0);
+        } else {
+            UIGraphicsBeginImageContext(messuredSize);
+        }
+    } else {
+        UIGraphicsBeginImageContext(messuredSize);
+    }
+    
+    CGContextRef ctr = UIGraphicsGetCurrentContext();
+    UIColor *color = [UIColor whiteColor];
+    [color set];
+    
+    CGRect rect = CGRectMake(0, 0, messuredSize.width + 1, messuredSize.height + 1);
+    CGContextFillRect(ctr, rect);
+    
+    color = [UIColor blackColor];
+    [color set];
+    
+    if (systemVersion >= 7.0) {
+        [string drawInRect:rect withAttributes:@{NSFontAttributeName: font}];
+    } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        [string drawInRect:rect withFont:font];
+#pragma clang diagnostic pop
+    }
+    
+    UIImage *imageToPrint = UIGraphicsGetImageFromCurrentImageContext();
+    
+    UIGraphicsEndImageContext();
+    
+    return imageToPrint;
 }
 
 /*
